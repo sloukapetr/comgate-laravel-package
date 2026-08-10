@@ -6,6 +6,21 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-10
+
+### Added
+
+- Transfer/reporting API helpers for daily transfer lists and single transfer exports.
+- Additional Merchant REST helpers for `refundPos`, `config`, `csvDownload`, `aboDownload`, `csvSingleTransfer`, `aboSingleTransfer` and Apple Pay domain association.
+- Redirect-based payment helper for the `paymentRedirect` Merchant API flow.
+- `Comgate::fake()` testing helper with call recording and configurable stub responses.
+- Dedicated payment state events for `PAID` and `CANCELLED` webhook notifications.
+
+### Changed
+
+- Webhook controller now dispatches typed state events alongside the generic webhook event.
+- Documentation expanded for the fake transport and newly exposed methods.
+
 ## [1.0.0] - 2026-08-10
 
 ### Added

@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
 use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
+use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed;
+use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\InvalidWebhookSignatureException;
 
@@ -27,11 +29,19 @@ class ComgateWebhookController
                 ->header('Content-Type', 'text/plain; charset=UTF-8');
         }
 
+        $notification = ComgateWebhookNotification::fromArray($validatedPayload);
+
         event(new ComgateWebhookReceived(
             $validatedPayload,
-            ComgateWebhookNotification::fromArray($validatedPayload),
+            $notification,
             $request
         ));
+
+        if ($notification->isPaid()) {
+            event(new ComgatePaymentPaid($validatedPayload, $notification, $request));
+        } elseif ($notification->isCancelled()) {
+            event(new ComgatePaymentFailed($validatedPayload, $notification, $request));
+        }
 
         return response('code=0&message=OK', Response::HTTP_OK)
             ->header('Content-Type', 'text/plain; charset=UTF-8');

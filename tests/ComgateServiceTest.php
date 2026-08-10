@@ -6,6 +6,7 @@ namespace Sloukapetr\ComgateLaravelPackage\Tests;
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Sloukapetr\ComgateLaravelPackage\Facades\Comgate;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\MissingParameterException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentNotFoundException;
@@ -44,6 +45,33 @@ class ComgateServiceTest extends TestCase
         });
     }
 
+    public function test_payment_redirect_uses_expected_endpoint(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/paymentRedirect/merchant/merchant-123' => Http::response([
+                'code' => 0,
+                'message' => 'OK',
+                'transId' => 'TX-REDIRECT',
+            ], 200),
+        ]);
+
+        $response = $this->app->make(ComgateService::class)->paymentRedirect([
+            'price' => 1000,
+            'curr' => 'CZK',
+            'label' => 'ORDER-1001',
+            'refId' => '1001',
+            'method' => 'ALL',
+        ]);
+
+        $this->assertSame('TX-REDIRECT', $response['transId']);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request->method() === 'POST'
+                && $request->url() === 'https://payments.comgate.cz/v2.0/paymentRedirect/merchant/merchant-123'
+                && $request['test'] === true;
+        });
+    }
+
     public function test_methods_uses_method_endpoint_with_filters(): void
     {
         Http::fake([
@@ -73,6 +101,53 @@ class ComgateServiceTest extends TestCase
                 && str_contains($url, 'price=1000')
                 && str_contains($url, 'initRecurring=1');
         });
+    }
+
+    public function test_transfer_list_uses_expected_endpoint(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/transferList/date/2025-04-25.json?test=1' => Http::response([
+                [
+                    'transferId' => 1234567,
+                    'transferDate' => '2025-04-25',
+                    'accountCounterparty' => '0/0000',
+                    'accountOutgoing' => '123456789/0000',
+                    'variableSymbol' => '12345678',
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->app->make(ComgateService::class)->transferList('2025-04-25', true);
+
+        $this->assertCount(1, $response);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request->method() === 'GET'
+                && $request->url() === 'https://payments.comgate.cz/v2.0/transferList/date/2025-04-25.json?test=1';
+        });
+    }
+
+    public function test_comgate_fake_records_calls_and_returns_configured_response(): void
+    {
+        $fake = Comgate::fake([
+            'createPayment' => [
+                'code' => 0,
+                'message' => 'OK',
+                'transId' => 'TX-FAKE',
+            ],
+        ]);
+
+        $response = Comgate::createPayment([
+            'price' => 1000,
+            'curr' => 'CZK',
+            'label' => 'ORDER-1001',
+            'refId' => '1001',
+            'method' => 'ALL',
+        ]);
+
+        $this->assertSame('TX-FAKE', $response['transId']);
+        $this->assertCount(1, $fake->calls('createPayment'));
+        $this->assertSame('createPayment', $fake->calls('createPayment')[0]['operation']);
     }
 
     public function test_refund_maps_missing_parameter_exception(): void

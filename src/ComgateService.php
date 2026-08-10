@@ -30,6 +30,17 @@ class ComgateService
 
     /**
      * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function paymentRedirect(array $payload): array
+    {
+        $merchantId = (string) config('comgate.merchant_id', '');
+
+        return $this->request('paymentRedirect', 'POST', sprintf('paymentRedirect/merchant/%s', rawurlencode($merchantId)), $this->withDefaultTestFlag($payload));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
      * @param  array<int, string>  $requiredMethods
      * @return array<string, mixed>
      */
@@ -126,6 +137,109 @@ class ComgateService
         $transId = $this->requireTransId($payload);
 
         return $this->request('status', 'GET', sprintf('payment/transId/%s.json', rawurlencode($transId)));
+    }
+
+    /**
+     * @param  string  $date
+     * @return array<int, array<string, mixed>>
+     */
+    public function transferList(string $date, bool $test = false): array
+    {
+        $response = $this->request('transferList', 'GET', sprintf('transferList/date/%s.json', rawurlencode($date)), [], [
+            'test' => $test,
+        ]);
+
+        return array_values(array_filter($response, 'is_array'));
+    }
+
+    /**
+     * @param  string  $transferId
+     * @return array<string, mixed>
+     */
+    public function singleTransfer(string $transferId, bool $test = false): array
+    {
+        return $this->request('singleTransfer', 'GET', sprintf('singleTransfer/transferId/%s.json', rawurlencode($transferId)), [], [
+            'test' => $test,
+        ]);
+    }
+
+    /**
+     * @param  string  $transferId
+     * @return array<string, mixed>
+     */
+    public function csvSingleTransfer(string $transferId, bool $download = false, bool $test = false): array
+    {
+        return $this->request('csvSingleTransfer', 'GET', sprintf('csvSingleTransfer/transferId/%s.json', rawurlencode($transferId)), [], [
+            'download' => $download,
+            'test' => $test,
+        ]);
+    }
+
+    /**
+     * @param  string  $transferId
+     * @return array<string, mixed>
+     */
+    public function aboSingleTransfer(string $transferId, bool $download = false, string $type = 'v1', string $encoding = 'utf8', bool $test = false): array
+    {
+        return $this->request('aboSingleTransfer', 'GET', sprintf('aboSingleTransfer/transferId/%s.json', rawurlencode($transferId)), [], [
+            'download' => $download,
+            'type' => $type,
+            'encoding' => $encoding,
+            'test' => $test,
+        ]);
+    }
+
+    /**
+     * @param  string  $date
+     * @return array<string, mixed>
+     */
+    public function csvDownload(string $date, bool $test = false): array
+    {
+        return $this->request('csvDownload', 'GET', sprintf('csvDownload/date/%s', rawurlencode($date)), [], [
+            'test' => $test,
+        ]);
+    }
+
+    /**
+     * @param  string  $date
+     * @return array<string, mixed>
+     */
+    public function aboDownload(string $date, string $type = 'v1', string $encoding = 'utf8', bool $test = false): array
+    {
+        return $this->request('aboDownload', 'GET', sprintf('aboDownload/date/%s', rawurlencode($date)), [], [
+            'type' => $type,
+            'encoding' => $encoding,
+            'test' => $test,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function refundPos(array $payload): array
+    {
+        return $this->request('refundPos', 'POST', 'refundPos.json', $this->withDefaultTestFlag($payload));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function config(array $payload): array
+    {
+        return $this->request('config', 'POST', 'config.json', $payload);
+    }
+
+    /**
+     * @param  string|null  $currency
+     * @return array<string, mixed>
+     */
+    public function appleDomainAssociation(?string $currency = null): array
+    {
+        return $this->request('appleDomainAssociation', 'GET', 'appleDomainAssociation.json', [], $this->withoutNulls([
+            'currency' => $currency,
+        ]));
     }
 
     /**
@@ -674,7 +788,8 @@ class ComgateService
     {
         $exceptionClass = match ($operation) {
             'status' => $apiCode === 1400 ? PaymentNotFoundException::class : ComgateRequestException::class,
-            'createPayment', 'recurringPayment', 'refund' => $apiCode === 1400 ? MissingParameterException::class : ComgateRequestException::class,
+            'createPayment', 'paymentRedirect', 'recurringPayment', 'refund' => $apiCode === 1400 ? MissingParameterException::class : ComgateRequestException::class,
+            'refundPos' => $apiCode === 1400 ? MissingParameterException::class : ComgateRequestException::class,
             'capturePreauth', 'cancelPreauth' => match ($apiCode) {
                 1400 => MissingParameterException::class,
                 1401 => PreauthFailedException::class,

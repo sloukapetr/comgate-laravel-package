@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Sloukapetr\ComgateLaravelPackage\Tests;
 
 use Illuminate\Support\Facades\Event;
+use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed;
+use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived;
 
 class ComgateWebhookControllerTest extends TestCase
@@ -47,6 +49,40 @@ class ComgateWebhookControllerTest extends TestCase
                 && $event->notification->threeDSPreference === 'AUTO'
                 && $event->notification->threeDSApplied === true
                 && $event->notification->refId === '1001';
+        });
+    }
+
+    public function test_webhook_dispatches_paid_event_for_paid_status(): void
+    {
+        Event::fake([ComgatePaymentPaid::class]);
+
+        $this->post('/comgate/webhook', [
+            'transId' => 'TX-001',
+            'status' => 'PAID',
+            'secret' => 'secret-xyz',
+        ], [
+            'X-Comgate-Secret' => 'secret-xyz',
+        ])->assertOk();
+
+        Event::assertDispatched(ComgatePaymentPaid::class, function (ComgatePaymentPaid $event): bool {
+            return $event->notification->isPaid() && $event->notification->transId === 'TX-001';
+        });
+    }
+
+    public function test_webhook_dispatches_failed_event_for_cancelled_status(): void
+    {
+        Event::fake([ComgatePaymentFailed::class]);
+
+        $this->post('/comgate/webhook', [
+            'transId' => 'TX-002',
+            'status' => 'CANCELLED',
+            'secret' => 'secret-xyz',
+        ], [
+            'X-Comgate-Secret' => 'secret-xyz',
+        ])->assertOk();
+
+        Event::assertDispatched(ComgatePaymentFailed::class, function (ComgatePaymentFailed $event): bool {
+            return $event->notification->isCancelled() && $event->notification->transId === 'TX-002';
         });
     }
 

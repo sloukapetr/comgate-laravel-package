@@ -5,16 +5,21 @@ Clean, reusable Laravel package for Comgate Merchant REST API v2.0 integration w
 ## Features
 
 - One-off payments (`POST /v2.0/payment.json`)
+- Redirect-based one-off payments (`POST /v2.0/paymentRedirect/merchant/{merchant_id}`)
 - Recurring payments (`initRecurring=true`, `POST /v2.0/payment.json`, `POST /v2.0/recurring.json`)
 - Pre-authorization capture/cancel (`PUT /v2.0/preauth/transId/{transId}.json`, `DELETE /v2.0/preauth/transId/{transId}.json`)
 - Refunds and payment cancellations (`POST /v2.0/refund.json`, `DELETE /v2.0/payment/transId/{transId}.json`)
 - Payment status verification (`GET /v2.0/payment/transId/{transId}.json`)
 - Payment method discovery (`GET /v2.0/method.json`)
+- Transfer reporting and payout export helpers (`GET /v2.0/transferList/date/{date}.json`, `GET /v2.0/singleTransfer/transferId/{transferId}.json`, `GET /v2.0/csvSingleTransfer/transferId/{transferId}.json`, `GET /v2.0/aboSingleTransfer/transferId/{transferId}.json`, `GET /v2.0/csvDownload/date/{date}`, `GET /v2.0/aboDownload/date/{date}`)
+- Extra Merchant API helpers for `refundPos`, `config` and Apple Pay domain association
 - Comgate Status API integration (`GET https://status.comgate.cz/health`, `GET https://status.comgate.cz/outages`)
 - Aggregated payment availability feedback for gateway health, allowed methods and outages
 - Typed availability report and guarded payment creation helper
+- Typed webhook notification DTO and payment-state events for `PAID` and `CANCELLED`
 - HTTP Basic authentication with merchant ID and secret
 - Webhook endpoint with secret verification and required `code=0&message=OK` response
+- `Comgate::fake()` test double with recorded calls and configurable responses
 - Operation-specific exceptions for common Comgate API failures
 
 ## Installation
@@ -85,6 +90,14 @@ $response = $comgate->createPayment([
 ]);
 
 $redirectUrl = $comgate->redirectUrl($response);
+
+$redirect = $comgate->paymentRedirect([
+    'price' => 1000,
+    'curr' => 'CZK',
+    'label' => 'ORDER-1001',
+    'refId' => '1001',
+    'method' => 'ALL',
+]);
 ```
 
 ### Initial recurring payment
@@ -147,6 +160,9 @@ $cancelPayment = $comgate->cancelPayment([
 $status = $comgate->status([
     'transId' => 'YOUR_TRANSACTION_ID',
 ]);
+
+$transferList = $comgate->transferList('2025-04-25');
+$singleTransfer = $comgate->singleTransfer('1234567');
 ```
 
 ### Available payment methods
@@ -261,6 +277,8 @@ When enabled, the package registers a `POST` webhook route (`/comgate/webhook` b
 
 - Secret is validated from `X-Comgate-Secret` header or `secret` payload field.
 - On success, the package dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived`.
+- For `PAID` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid`.
+- For `CANCELLED` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed`.
 - The event exposes both raw payload and a typed `notification` DTO with helpers like `isPaid()` and `isCancelled()`, plus typed status fields such as `cardNumber`, `appliedFeeType`, `threeDSPreference` and `threeDSApplied`.
 - Response is always `code=0&message=OK` for valid webhook calls.
 
@@ -287,6 +305,10 @@ class HandleComgateWebhook
 use Comgate;
 
 $response = Comgate::status(['transId' => 'YOUR_TRANSACTION_ID']);
+
+$fake = Comgate::fake([
+    'status' => ['code' => 0, 'message' => 'OK', 'transId' => 'TX-001', 'status' => 'PAID'],
+]);
 ```
 
 ## Official API Reference
@@ -300,6 +322,7 @@ composer test
 ```
 
 The package includes HTTP-layer tests using Laravel `Http::fake()` and Testbench for webhook route coverage.
+The facade fake helper can be used in application tests when you want to avoid HTTP calls and assert recorded Comgate operations.
 
 ## Release
 
