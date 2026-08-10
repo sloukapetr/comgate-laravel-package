@@ -7,8 +7,12 @@ namespace Sloukapetr\ComgateLaravelPackage\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
+use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\InvalidWebhookSignatureException;
+
+use function event;
+use function response;
 
 class ComgateWebhookController
 {
@@ -23,7 +27,11 @@ class ComgateWebhookController
                 ->header('Content-Type', 'text/plain; charset=UTF-8');
         }
 
-        event(new ComgateWebhookReceived($validatedPayload, $request));
+        event(new ComgateWebhookReceived(
+            $validatedPayload,
+            ComgateWebhookNotification::fromArray($validatedPayload),
+            $request
+        ));
 
         return response('code=0&message=OK', Response::HTTP_OK)
             ->header('Content-Type', 'text/plain; charset=UTF-8');

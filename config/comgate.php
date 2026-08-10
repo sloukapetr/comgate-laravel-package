@@ -9,6 +9,11 @@ return [
     'base_url' => env('COMGATE_BASE_URL', 'https://payments.comgate.cz/v2.0'),
     'timeout' => (int) env('COMGATE_TIMEOUT', 30),
 
+    'status' => [
+        'base_url' => env('COMGATE_STATUS_BASE_URL', 'https://status.comgate.cz'),
+        'timeout' => (int) env('COMGATE_STATUS_TIMEOUT', (int) env('COMGATE_TIMEOUT', 30)),
+    ],
+
     'webhook' => [
         'enabled' => (bool) env('COMGATE_WEBHOOK_ENABLED', true),
         'path' => env('COMGATE_WEBHOOK_PATH', '/comgate/webhook'),

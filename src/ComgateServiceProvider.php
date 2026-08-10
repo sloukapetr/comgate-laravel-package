@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Sloukapetr\ComgateLaravelPackage\Http\Controllers\ComgateWebhookController;
 
+use function config;
+use function config_path;
+
 class ComgateServiceProvider extends ServiceProvider
 {
     public function register(): void
