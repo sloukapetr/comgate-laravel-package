@@ -6,6 +6,17 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-10
+
+### Added
+
+- Repository-level `AGENTS.md` guidance for AI coding agents working with this package.
+- Expanded README guidance for Laravel payment workflows, admin payment overview patterns, and integration-mode selection (`REDIRECT`, `INLINE`, `Checkout SDK`).
+
+### Changed
+
+- Improved implementation recommendations for app-level idempotence, payment state ownership, and operational support flows.
+
 ## [1.2.0] - 2026-08-10
 
 ### Added
