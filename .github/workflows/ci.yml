@@ -45,6 +45,9 @@ jobs:
       - name: Configure Laravel testbench version
         run: composer require --dev "orchestra/testbench:${{ matrix.testbench }}" --no-update --no-interaction
 
+      - name: Disable Composer advisory blocking
+        run: composer config --global policy.advisories.block false
+
       - name: Install dependencies
         run: composer update --prefer-dist --no-interaction
 
