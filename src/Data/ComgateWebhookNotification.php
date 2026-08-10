@@ -100,6 +100,26 @@ class ComgateWebhookNotification
         return $this->status === 'AUTHORIZED';
     }
 
+    public function getPriceInMainUnit(): ?float
+    {
+        if ($this->price === null) {
+            return null;
+        }
+
+        return $this->price / 100;
+    }
+
+    public function getFormattedPriceAttribute(): ?string
+    {
+        $priceInMainUnit = $this->getPriceInMainUnit();
+
+        if ($priceInMainUnit === null) {
+            return null;
+        }
+
+        return number_format($priceInMainUnit, 2, '.', '');
+    }
+
     /**
      * @return array<string, mixed>
      */

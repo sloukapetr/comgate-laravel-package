@@ -6,6 +6,18 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-10
+
+### Added
+
+- Price conversion helpers on the typed webhook DTO for main-currency display.
+- Explicit documentation and test coverage for non-zero REST API `code` responses returned with HTTP 200.
+- Webhook listener guidance for idempotent processing.
+
+### Changed
+
+- Extended the webhook DTO and tests for price formatting and retry-safe listener flows.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added

@@ -280,6 +280,7 @@ When enabled, the package registers a `POST` webhook route (`/comgate/webhook` b
 - For `PAID` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid`.
 - For `CANCELLED` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed`.
 - The event exposes both raw payload and a typed `notification` DTO with helpers like `isPaid()` and `isCancelled()`, plus typed status fields such as `cardNumber`, `appliedFeeType`, `threeDSPreference` and `threeDSApplied`.
+- The DTO also exposes `getPriceInMainUnit()` and `getFormattedPriceAttribute()` to convert Comgate cents/haléře into the main currency unit.
 - Response is always `code=0&message=OK` for valid webhook calls.
 
 ```php
@@ -289,12 +290,22 @@ class HandleComgateWebhook
 {
     public function handle(ComgateWebhookReceived $event): void
     {
+        // Keep this listener idempotent: Comgate can retry webhook delivery.
+        if ($this->alreadyProcessed($event->notification->transId)) {
+            return;
+        }
+
         if ($event->notification->isPaid()) {
             $transactionId = $event->notification->transId;
             $referenceId = $event->notification->refId;
 
             // mark order or subscription renewal as paid
         }
+    }
+
+    private function alreadyProcessed(?string $transactionId): bool
+    {
+        return false;
     }
 }
 ```

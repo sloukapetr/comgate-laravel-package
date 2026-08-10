@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Sloukapetr\ComgateLaravelPackage\Facades\Comgate;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
+use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateRequestException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\MissingParameterException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentNotFoundException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentUnavailableException;
@@ -125,6 +126,47 @@ class ComgateServiceTest extends TestCase
             return $request->method() === 'GET'
                 && $request->url() === 'https://payments.comgate.cz/v2.0/transferList/date/2025-04-25.json?test=1';
         });
+    }
+
+    public function test_methods_throws_on_non_zero_api_code_even_with_http_200(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/method.json*' => Http::response([
+                'code' => 1400,
+                'message' => 'Bad request',
+            ], 200),
+        ]);
+
+        try {
+            $this->app->make(ComgateService::class)->methods([
+                'country' => 'CZ',
+                'curr' => 'CZK',
+            ]);
+
+            $this->fail('Expected ComgateRequestException was not thrown.');
+        } catch (ComgateRequestException $exception) {
+            $this->assertSame(1400, $exception->apiCode());
+            $this->assertSame(200, $exception->statusCode());
+        }
+    }
+
+    public function test_transfer_list_throws_on_non_zero_api_code_even_with_http_200(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/transferList/date/2025-04-25.json?test=1' => Http::response([
+                'code' => 1400,
+                'message' => 'Bad request',
+            ], 200),
+        ]);
+
+        try {
+            $this->app->make(ComgateService::class)->transferList('2025-04-25', true);
+
+            $this->fail('Expected ComgateRequestException was not thrown.');
+        } catch (ComgateRequestException $exception) {
+            $this->assertSame(1400, $exception->apiCode());
+            $this->assertSame(200, $exception->statusCode());
+        }
     }
 
     public function test_comgate_fake_records_calls_and_returns_configured_response(): void

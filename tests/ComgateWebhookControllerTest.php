@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage\Tests;
 
+use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
 use Illuminate\Support\Facades\Event;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid;
@@ -98,5 +99,16 @@ class ComgateWebhookControllerTest extends TestCase
 
         $response->assertUnauthorized();
         $this->assertSame('code=1&message=Invalid+secret', $response->getContent());
+    }
+
+    public function test_webhook_notification_formats_price_in_main_unit(): void
+    {
+        $notification = ComgateWebhookNotification::fromArray([
+            'price' => 12345,
+            'status' => 'PAID',
+        ]);
+
+        $this->assertSame(123.45, $notification->getPriceInMainUnit());
+        $this->assertSame('123.45', $notification->getFormattedPriceAttribute());
     }
 }
