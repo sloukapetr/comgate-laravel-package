@@ -74,6 +74,86 @@ COMGATE_WEBHOOK_PATH=/comgate/webhook
 COMGATE_WEBHOOK_ROUTE_NAME=comgate.webhook
 ```
 
+## Recommended Laravel Use Cases
+
+This package is a good fit when your Laravel app needs to own the payment lifecycle, not just send the customer to Comgate.
+
+- Classic e-shop checkout with one-off payments and status tracking.
+- Subscription or membership billing with an initial payment followed by recurring charges.
+- Reservation or deposit flows where you first authorize a card payment and later capture or cancel it.
+- Admin back office for refunds, cancellations, payment lookup and payout reconciliation.
+- Internal payment links or order-payment screens where a merchant wants to control the business workflow in Laravel.
+
+Typical pattern in the app:
+
+- create an internal payment record first
+- call Comgate to create the external payment
+- store `transId`, `refId`, method and expected amount
+- process webhook events idempotently
+- update your order/subscription state from your own domain model
+- expose admin actions for refund, cancel, capture and status refresh
+
+## Displaying the Payment Gateway
+
+Comgate supports three main frontend integration styles. The best choice depends on how much control you want over the checkout UX.
+
+### REDIRECT
+
+Use redirect when you want the simplest and most robust implementation.
+
+- Customer is redirected from your app to Comgate and then back again.
+- Lowest frontend complexity.
+- Usually the safest choice for standard Laravel e-shops.
+- Best when you want to keep payment UI logic outside your app.
+
+Laravel recommendation:
+
+- create the payment in your controller or service
+- store the returned redirect URL
+- send the user to that URL
+- handle the return page as a UI-only confirmation
+- rely on webhook + `status()` for authoritative payment state
+
+### INLINE
+
+Use inline when you want the gateway embedded in your checkout page.
+
+- Gateway is rendered inside your cart or checkout page via iframe or popup.
+- Better UX continuity than redirect.
+- More frontend work and more browser/UI edge cases.
+- Good if you need a more seamless checkout but still want the standard gateway flow.
+
+Laravel recommendation:
+
+- keep the payment orchestration in PHP
+- let the frontend open the gateway container
+- use the backend for payment creation and state updates
+- keep webhook handling identical to redirect mode
+
+### Checkout SDK
+
+Use Checkout SDK if you want the deepest checkout integration and the most polished in-app card/Apple Pay/Google Pay experience.
+
+- Best for custom checkout experiences.
+- Supports card payments, Apple Pay and Google Pay.
+- Gives you the most control, but also the most implementation work.
+- Well suited for products where the gateway should feel like part of the app rather than an external step.
+
+Laravel recommendation:
+
+- keep your Laravel app as the source of truth for payment state
+- use the backend to create and verify payments
+- use the frontend SDK only for payment UI and tokenization flow
+- still process payment confirmation through webhook and status checks
+
+### Choosing Between Them
+
+- Choose `REDIRECT` if you want the fastest and least risky implementation.
+- Choose `INLINE` if you want a branded checkout without a full SDK rollout.
+- Choose `Checkout SDK` if you need the best UX and are willing to invest more frontend effort.
+
+For most Laravel teams, the practical default is `REDIRECT` first, then `INLINE`, and only later `Checkout SDK` if you need the extra UX control.
+
 ## Usage
 
 ```php
@@ -270,6 +350,33 @@ Typical Laravel design:
 - schedule renewals in your app and call `recurringPayment()` with a new `refId`
 - process webhook updates to mark payments as paid, cancelled or failed
 - issue `refund()` only for paid transactions and `cancelPayment()` only for pending transactions
+
+## Admin Payment Overview
+
+If you are building an admin panel, keep a local payment overview table or screen. That makes refunds, cancellations and subscription maintenance much easier.
+
+Useful columns and fields:
+
+- `transId`, `refId`, `method`, `curr`, `price`, `status`
+- relation to order, customer or subscription
+- timestamps for created, paid, cancelled, refunded and last webhook
+- internal processing flags such as `refunded`, `captured`, `processed_at`
+
+Useful admin actions:
+
+- view payment detail and raw webhook history
+- refresh status from Comgate
+- create refund for paid payments
+- cancel pending payments
+- capture authorized preauth payments
+- navigate to related order or subscription detail
+
+Recommended admin rules:
+
+- only allow refund/cancel actions when the current state matches the Comgate rules
+- write every admin action to an audit log
+- treat webhook events as the trigger for state changes, not the email notifications
+- make all listeners idempotent so retries do not duplicate side effects
 
 ## Webhooks
 
