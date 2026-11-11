@@ -4,21 +4,84 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage;
 
-use Sloukapetr\ComgateLaravelPackage\Data\ComgatePaymentAvailability;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Sloukapetr\ComgateLaravelPackage\Data\ComgatePaymentAvailability;
+use Sloukapetr\ComgateLaravelPackage\Data\ComgatePaymentStatus;
+use Sloukapetr\ComgateLaravelPackage\Data\CreatedPayment;
+use Sloukapetr\ComgateLaravelPackage\Data\CreatePayment;
+use Sloukapetr\ComgateLaravelPackage\Data\RecurringCharge;
+use Sloukapetr\ComgateLaravelPackage\Data\RefundRequest;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateRequestException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\InvalidWebhookSignatureException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\MissingParameterException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentNotFoundException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentUnavailableException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PreauthFailedException;
+use Sloukapetr\ComgateLaravelPackage\Exceptions\RecurringPaymentException;
+use Sloukapetr\ComgateLaravelPackage\Exceptions\RefundRejectedException;
 
 use function config;
 
 class ComgateService
 {
+    protected ?string $credentialMerchantId = null;
+
+    protected ?string $credentialSecret = null;
+
+    /**
+     * Merchant client for another Comgate account. The container singleton keeps the configured account.
+     */
+    public function withCredentials(string $merchantId, string $secret): static
+    {
+        $merchantId = trim($merchantId);
+        $secret = trim($secret);
+
+        if ($merchantId === '' || $secret === '') {
+            throw new ComgateRequestException('Comgate merchant id and secret are required.', 0, '');
+        }
+
+        $client = clone $this;
+        $client->credentialMerchantId = $merchantId;
+        $client->credentialSecret = $secret;
+
+        return $client;
+    }
+
+    public function createCheckout(CreatePayment $payment): CreatedPayment
+    {
+        $created = CreatedPayment::fromArray($this->createPayment($payment->toPayload()));
+
+        if ($created->redirect === null) {
+            throw new ComgateRequestException(
+                'Comgate did not return a payment redirect URL.',
+                0,
+                json_encode($created->payload) ?: ''
+            );
+        }
+
+        return $created;
+    }
+
+    public function chargeRecurring(RecurringCharge $charge): CreatedPayment
+    {
+        return CreatedPayment::fromArray($this->recurringPayment($charge->toPayload()));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function refundPayment(RefundRequest $refund): array
+    {
+        return $this->refund($refund->toPayload());
+    }
+
+    public function findPayment(string $transId): ComgatePaymentStatus
+    {
+        return ComgatePaymentStatus::fromArray($this->status(['transId' => $transId]));
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
@@ -34,7 +97,7 @@ class ComgateService
      */
     public function paymentRedirect(array $payload): array
     {
-        $merchantId = (string) config('comgate.merchant_id', '');
+        $merchantId = $this->merchantId();
 
         return $this->request('paymentRedirect', 'POST', sprintf('paymentRedirect/merchant/%s', rawurlencode($merchantId)), $this->withDefaultTestFlag($payload));
     }
@@ -369,7 +432,7 @@ class ComgateService
      */
     public function verifyWebhookSignature(array $payload, ?string $providedSecret = null): bool
     {
-        $expected = (string) config('comgate.secret', '');
+        $expected = $this->secret();
         $actual = $providedSecret ?? (isset($payload['secret']) ? (string) $payload['secret'] : '');
 
         if ($expected === '' || $actual === '') {
@@ -431,10 +494,7 @@ class ComgateService
 
     protected function http(): PendingRequest
     {
-        return Http::withBasicAuth(
-            (string) config('comgate.merchant_id', ''),
-            (string) config('comgate.secret', '')
-        )
+        return Http::withBasicAuth($this->merchantId(), $this->secret())
             ->asJson()
             ->timeout((int) config('comgate.timeout', 30));
     }
@@ -442,6 +502,16 @@ class ComgateService
     protected function statusHttp(): PendingRequest
     {
         return Http::timeout((int) config('comgate.status.timeout', (int) config('comgate.timeout', 30)));
+    }
+
+    protected function merchantId(): string
+    {
+        return $this->credentialMerchantId ?? (string) config('comgate.merchant_id', '');
+    }
+
+    protected function secret(): string
+    {
+        return $this->credentialSecret ?? (string) config('comgate.secret', '');
     }
 
     protected function url(string $endpoint): string
@@ -788,8 +858,21 @@ class ComgateService
     {
         $exceptionClass = match ($operation) {
             'status' => $apiCode === 1400 ? PaymentNotFoundException::class : ComgateRequestException::class,
-            'createPayment', 'paymentRedirect', 'recurringPayment', 'refund' => $apiCode === 1400 ? MissingParameterException::class : ComgateRequestException::class,
-            'refundPos' => $apiCode === 1400 ? MissingParameterException::class : ComgateRequestException::class,
+            'createPayment', 'paymentRedirect' => match ($apiCode) {
+                1400 => MissingParameterException::class,
+                1316, 1317 => RecurringPaymentException::class,
+                default => ComgateRequestException::class,
+            },
+            'recurringPayment' => match ($apiCode) {
+                1400 => MissingParameterException::class,
+                1316, 1317, 1318, 1320 => RecurringPaymentException::class,
+                default => ComgateRequestException::class,
+            },
+            'refund', 'refundPos' => match ($apiCode) {
+                1400 => MissingParameterException::class,
+                1401, 1402 => RefundRejectedException::class,
+                default => ComgateRequestException::class,
+            },
             'capturePreauth', 'cancelPreauth' => match ($apiCode) {
                 1400 => MissingParameterException::class,
                 1401 => PreauthFailedException::class,

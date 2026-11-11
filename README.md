@@ -5,6 +5,7 @@ Clean, reusable Laravel package for Comgate Merchant REST API v2.0 integration w
 ## Features
 
 - One-off payments (`POST /v2.0/payment.json`)
+- Typed checkout for digital goods: validated price, 16-character label, contact, and return URLs (`CreatePayment`, `createCheckout()`)
 - Redirect-based one-off payments (`POST /v2.0/paymentRedirect/merchant/{merchant_id}`)
 - Recurring payments (`initRecurring=true`, `POST /v2.0/payment.json`, `POST /v2.0/recurring.json`)
 - Pre-authorization capture/cancel (`PUT /v2.0/preauth/transId/{transId}.json`, `DELETE /v2.0/preauth/transId/{transId}.json`)
@@ -72,6 +73,12 @@ COMGATE_STATUS_TIMEOUT=30
 COMGATE_WEBHOOK_ENABLED=true
 COMGATE_WEBHOOK_PATH=/comgate/webhook
 COMGATE_WEBHOOK_ROUTE_NAME=comgate.webhook
+COMGATE_COUNTRY=CZ
+COMGATE_CURRENCY=CZK
+COMGATE_LANG=cs
+COMGATE_METHOD=ALL
+COMGATE_CATEGORY=OTHER
+COMGATE_DELIVERY=ELECTRONIC_DELIVERY
 ```
 
 ## Recommended Laravel Use Cases
@@ -155,6 +162,56 @@ Laravel recommendation:
 For most Laravel teams, the practical default is `REDIRECT` first, then `INLINE`, and only later `Checkout SDK` if you need the extra UX control.
 
 ## Usage
+
+Digital goods (a course, a plan, a subscription) should go through `CreatePayment::digital()`. The price is in minor units, `refId` is your payment id, and the product name is shortened to the 16-character Comgate label. Store `transId` and the returned `redirect` unchanged.
+
+```php
+use Sloukapetr\ComgateLaravelPackage\Data\CreatePayment;
+use Sloukapetr\ComgateLaravelPackage\Data\RecurringCharge;
+use Sloukapetr\ComgateLaravelPackage\Data\RefundRequest;
+use Sloukapetr\ComgateLaravelPackage\Support\ReturnUrl;
+
+$created = $comgate->createCheckout(CreatePayment::digital(
+    price: 19900,
+    refId: 'pay-1001',
+    product: 'Kurz revizí a zkoušek',
+    email: 'platce@email.com',
+    fullName: 'Jan Novák',
+    urlPaid: ReturnUrl::withPlaceholders('https://example.test/platba/navrat'),
+    urlCancelled: ReturnUrl::withPlaceholders('https://example.test/platba/zruseno'),
+    urlPending: ReturnUrl::withPlaceholders('https://example.test/platba/ceka'),
+));
+
+$redirectUrl = $created->redirect;
+$transId = $created->transId;
+
+$status = $comgate->findPayment($transId);
+
+if ($status->isPaid() && $status->matchesAmount(19900, 'CZK')) {
+    // fulfill the order
+}
+
+$renewal = $comgate->chargeRecurring(new RecurringCharge(
+    initRecurringId: $transId,
+    price: 19900,
+    refId: 'pay-1001-2026-12',
+    label: 'Tarif',
+));
+
+$comgate->refundPayment(new RefundRequest(
+    transId: $transId,
+    amount: 19900,
+    currency: 'CZK',
+));
+
+$unitGateway = $comgate->withCredentials($unitMerchantId, $unitSecret);
+```
+
+`withCredentials()` returns a separate client. The shared `Comgate` service keeps using `COMGATE_MERCHANT_ID`.
+
+The first recurring payment is a normal checkout with `initRecurring: true` and a card method. Later charges use `chargeRecurring()` and a new `refId` each time. In tests, the payer e-mail `recurring.cancelled@comgate.cz` makes every follow-up charge `CANCELLED`.
+
+Low-level calls remain available when you already have a payload:
 
 ```php
 use Sloukapetr\ComgateLaravelPackage\ComgateService;

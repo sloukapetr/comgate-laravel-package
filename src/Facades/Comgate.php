@@ -9,6 +9,11 @@ use Sloukapetr\ComgateLaravelPackage\ComgateService;
 use Sloukapetr\ComgateLaravelPackage\Fakes\ComgateFake;
 
 /**
+ * @method static static withCredentials(string $merchantId, string $secret)
+ * @method static \Sloukapetr\ComgateLaravelPackage\Data\CreatedPayment createCheckout(\Sloukapetr\ComgateLaravelPackage\Data\CreatePayment $payment)
+ * @method static \Sloukapetr\ComgateLaravelPackage\Data\CreatedPayment chargeRecurring(\Sloukapetr\ComgateLaravelPackage\Data\RecurringCharge $charge)
+ * @method static array<string, mixed> refundPayment(\Sloukapetr\ComgateLaravelPackage\Data\RefundRequest $refund)
+ * @method static \Sloukapetr\ComgateLaravelPackage\Data\ComgatePaymentStatus findPayment(string $transId)
  * @method static array<string, mixed> createPayment(array<string, mixed> $payload)
  * @method static array<string, mixed> paymentRedirect(array<string, mixed> $payload)
  * @method static array<string, mixed> createPaymentChecked(array<string, mixed> $payload, array<int, string> $requiredMethods = [])

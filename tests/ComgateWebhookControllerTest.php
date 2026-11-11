@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage\Tests;
 
-use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
 use Illuminate\Support\Facades\Event;
+use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
+use Sloukapetr\ComgateLaravelPackage\Enums\PaymentStatus;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid;
 use Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived;
@@ -105,10 +106,14 @@ class ComgateWebhookControllerTest extends TestCase
     {
         $notification = ComgateWebhookNotification::fromArray([
             'price' => 12345,
+            'curr' => 'CZK',
             'status' => 'PAID',
         ]);
 
         $this->assertSame(123.45, $notification->getPriceInMainUnit());
         $this->assertSame('123.45', $notification->getFormattedPriceAttribute());
+        $this->assertTrue($notification->matchesAmount(12345, 'CZK'));
+        $this->assertFalse($notification->matchesAmount(12345, 'EUR'));
+        $this->assertSame(PaymentStatus::Paid, $notification->paymentStatus());
     }
 }

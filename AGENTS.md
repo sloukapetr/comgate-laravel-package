@@ -12,11 +12,13 @@ This repository is a Laravel package for Comgate Merchant REST API v2.0 integrat
 
 ## Supported Flows
 - One-off payments and redirect-based payments.
+- Typed checkout for digital goods (`CreatePayment::digital()`, `createCheckout()`), recurring charges, refunds and `findPayment()`.
+- A second merchant via `withCredentials()` while the default client stays on the configured account.
 - Recurring payments and preauth capture/cancel.
 - Refunds, cancellation, payment status, method discovery.
 - Status API health and outage checks.
 - Transfer reporting and payout export helpers.
-- Webhook handling for paid/cancelled status changes.
+- Webhook handling for paid/cancelled status changes. Confirm the paid amount with `matchesAmount()` before fulfilling an order.
 
 ## Working Rules
 - Prefer the existing service API over adding parallel abstractions.

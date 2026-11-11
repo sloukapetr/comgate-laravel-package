@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage\Data;
 
+use Sloukapetr\ComgateLaravelPackage\Enums\PaymentStatus;
+
 class ComgateWebhookNotification
 {
     /**
@@ -98,6 +100,17 @@ class ComgateWebhookNotification
     public function isAuthorized(): bool
     {
         return $this->status === 'AUTHORIZED';
+    }
+
+    public function paymentStatus(): ?PaymentStatus
+    {
+        return is_string($this->status) ? PaymentStatus::tryFrom($this->status) : null;
+    }
+
+    public function matchesAmount(int $price, string $currency): bool
+    {
+        return $this->price === $price
+            && strtoupper((string) $this->curr) === strtoupper($currency);
     }
 
     public function getPriceInMainUnit(): ?float

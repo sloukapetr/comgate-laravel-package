@@ -20,4 +20,13 @@ return [
         'middleware' => ['api'],
         'route_name' => env('COMGATE_WEBHOOK_ROUTE_NAME', 'comgate.webhook'),
     ],
+
+    'defaults' => [
+        'country' => env('COMGATE_COUNTRY', 'CZ'),
+        'currency' => env('COMGATE_CURRENCY', 'CZK'),
+        'lang' => env('COMGATE_LANG', 'cs'),
+        'method' => env('COMGATE_METHOD', 'ALL'),
+        'category' => env('COMGATE_CATEGORY', 'OTHER'),
+        'delivery' => env('COMGATE_DELIVERY', 'ELECTRONIC_DELIVERY'),
+    ],
 ];

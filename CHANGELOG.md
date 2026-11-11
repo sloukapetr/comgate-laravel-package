@@ -6,6 +6,16 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-11
+
+### Added
+
+- Checkout helpers for the flows the application will use: `CreatePayment::digital()`, `createCheckout()`, `chargeRecurring()`, `refundPayment()` and `findPayment()`.
+- `PaymentStatus` as the single Comgate status mapping, with amount checks on status and webhook notifications.
+- `withCredentials()` for a second Comgate merchant without replacing the configured default client.
+- Validation of price, contact, label length and return URLs before the HTTP call. Return URLs keep the literal `${id}` and `${refId}` placeholders.
+- `RefundRejectedException` for refund codes 1401 and 1402, and `RecurringPaymentException` for recurring codes 1316, 1317, 1318 and 1320.
+
 ## [1.2.1] - 2026-08-10
 
 ### Added
