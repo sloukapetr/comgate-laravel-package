@@ -19,7 +19,7 @@ Clean, reusable Laravel package for Comgate Merchant REST API v2.0 integration w
 - Typed availability report and guarded payment creation helper
 - Typed webhook notification DTO and payment-state events for `PAID` and `CANCELLED`
 - HTTP Basic authentication with merchant ID and secret
-- Webhook endpoint with secret verification and required `code=0&message=OK` response
+- Webhook endpoint with secret verification, status API confirmation, and required `code=0&message=OK` response
 - `Comgate::fake()` test double with recorded calls and configurable responses
 - Operation-specific exceptions for common Comgate API failures
 
@@ -50,6 +50,8 @@ Laravel package discovery is enabled automatically.
 - Laravel: `11`, `12`, `13`
 - Package test matrix: `orchestra/testbench:^9|^10|^11`
 
+CI runs PHP 8.2 with Laravel 11 and 12, and PHP 8.3, 8.4 and 8.5 with Laravel 13.
+
 The Testbench range is intentional. It keeps package development aligned with the corresponding Laravel major versions instead of pinning local tests to only one framework branch.
 
 ## Configuration
@@ -68,11 +70,15 @@ COMGATE_SECRET=...
 COMGATE_TEST=true
 COMGATE_BASE_URL=https://payments.comgate.cz/v2.0
 COMGATE_TIMEOUT=30
+COMGATE_FORCE_IPV4=false
 COMGATE_STATUS_BASE_URL=https://status.comgate.cz
 COMGATE_STATUS_TIMEOUT=30
 COMGATE_WEBHOOK_ENABLED=true
 COMGATE_WEBHOOK_PATH=/comgate/webhook
 COMGATE_WEBHOOK_ROUTE_NAME=comgate.webhook
+COMGATE_WEBHOOK_VERIFY_STATUS=true
+COMGATE_WEBHOOK_VERIFY_IP=false
+COMGATE_WEBHOOK_IPS_URL=https://payments.comgate.cz/ips-v4
 COMGATE_COUNTRY=CZ
 COMGATE_CURRENCY=CZK
 COMGATE_LANG=cs
@@ -80,6 +86,50 @@ COMGATE_METHOD=ALL
 COMGATE_CATEGORY=OTHER
 COMGATE_DELIVERY=ELECTRONIC_DELIVERY
 ```
+
+| Config key | Environment | Default |
+| --- | --- | --- |
+| `merchant_id` | `COMGATE_MERCHANT_ID` | |
+| `secret` | `COMGATE_SECRET` | |
+| `test` | `COMGATE_TEST` | `true` |
+| `base_url` | `COMGATE_BASE_URL` | `https://payments.comgate.cz/v2.0` |
+| `timeout` | `COMGATE_TIMEOUT` | `30` |
+| `force_ipv4` | `COMGATE_FORCE_IPV4` | `false` |
+| `merchants` | | `[]` |
+| `status.base_url` | `COMGATE_STATUS_BASE_URL` | `https://status.comgate.cz` |
+| `status.timeout` | `COMGATE_STATUS_TIMEOUT` | `COMGATE_TIMEOUT`, then `30` |
+| `webhook.enabled` | `COMGATE_WEBHOOK_ENABLED` | `true` |
+| `webhook.path` | `COMGATE_WEBHOOK_PATH` | `/comgate/webhook` |
+| `webhook.middleware` | | `['api']` |
+| `webhook.route_name` | `COMGATE_WEBHOOK_ROUTE_NAME` | `comgate.webhook` |
+| `webhook.verify_status` | `COMGATE_WEBHOOK_VERIFY_STATUS` | `true` |
+| `webhook.verify_ip` | `COMGATE_WEBHOOK_VERIFY_IP` | `false` |
+| `webhook.ips_url` | `COMGATE_WEBHOOK_IPS_URL` | `https://payments.comgate.cz/ips-v4` |
+| `defaults.country` | `COMGATE_COUNTRY` | `CZ` |
+| `defaults.currency` | `COMGATE_CURRENCY` | `CZK` |
+| `defaults.lang` | `COMGATE_LANG` | `cs` |
+| `defaults.method` | `COMGATE_METHOD` | `ALL` |
+| `defaults.category` | `COMGATE_CATEGORY` | `OTHER` |
+| `defaults.delivery` | `COMGATE_DELIVERY` | `ELECTRONIC_DELIVERY` |
+
+`merchants` and `webhook.middleware` are set in the published `config/comgate.php`. They have no environment variable. `merchants` maps a merchant id to `secret` and an optional `test` bool:
+
+```php
+'merchants' => [
+    '222222' => [
+        'secret' => 'secret-for-the-second-shop',
+        'test' => false,
+    ],
+],
+```
+
+## IP whitelist
+
+Comgate accepts Merchant API and Status API calls only from addresses listed in the merchant portal: store connection → allowed IP addresses. The portal stores an IPv4 address or an `IPv4/MASK` range ([security](https://apidoc.comgate.cz/zabezpeceni)).
+
+A host with both IPv4 and IPv6 can open the connection over IPv6. That address is not on the whitelist, so Comgate rejects the call.
+
+Leave `COMGATE_FORCE_IPV4` at `false` unless the server is dual-stack and the whitelist contains only its IPv4 address. Set `COMGATE_FORCE_IPV4=true` (`comgate.force_ipv4`) to resolve `payments.comgate.cz` and `status.comgate.cz` to IPv4. The default stays `false`, so existing installations keep the previous DNS behavior.
 
 ## Recommended Laravel Use Cases
 
@@ -208,6 +258,23 @@ $unitGateway = $comgate->withCredentials($unitMerchantId, $unitSecret);
 ```
 
 `withCredentials()` returns a separate client. The shared `Comgate` service keeps using `COMGATE_MERCHANT_ID`.
+
+`forMerchant()` does the same from configuration. The default shop stays `merchant_id` and `secret`. Further shops go into `comgate.merchants` (default `[]`):
+
+```php
+'merchants' => [
+    '222222' => [
+        'secret' => 'secret-for-the-second-shop',
+        'test' => false,
+    ],
+],
+```
+
+```php
+$second = $comgate->forMerchant('222222');
+```
+
+`test` is optional. `null` keeps `COMGATE_TEST`. An unknown id throws `ComgateRequestException`.
 
 The first recurring payment is a normal checkout with `initRecurring: true` and a card method. Later charges use `chargeRecurring()` and a new `refId` each time. In tests, the payer e-mail `recurring.cancelled@comgate.cz` makes every follow-up charge `CANCELLED`.
 
@@ -396,6 +463,25 @@ The package throws `ComgateRequestException` by default and narrows a few common
 - `MissingParameterException` for API code `1400` on create, recurring, refund and preauth calls
 - `PaymentNotFoundException` for API code `1400` on status lookups
 - `PreauthFailedException` for API code `1401` on pre-authorization capture/cancel calls
+- `ComgateConnectionException` for timeouts and unreachable connections (`statusCode()` is `0`, and the HTTP client exception is `previous`)
+
+`ComgateRequestException::isRetryable()` is `true` for `ComgateConnectionException` and for HTTP 5xx. It is `false` for other failures, including a non-zero API `code` returned with HTTP 200. Use it in queued jobs so only temporary failures are released:
+
+```php
+use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateRequestException;
+
+try {
+    Comgate::findPayment($transId);
+} catch (ComgateRequestException $exception) {
+    if ($exception->isRetryable()) {
+        $this->release(60);
+
+        return;
+    }
+
+    $this->fail($exception);
+}
+```
 
 ## Subscription management
 
@@ -439,37 +525,36 @@ Recommended admin rules:
 
 When enabled, the package registers a `POST` webhook route (`/comgate/webhook` by default).
 
-- Secret is validated from `X-Comgate-Secret` header or `secret` payload field.
-- On success, the package dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived`.
-- For `PAID` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid`.
-- For `CANCELLED` notifications, it also dispatches `Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentFailed`.
-- The event exposes both raw payload and a typed `notification` DTO with helpers like `isPaid()` and `isCancelled()`, plus typed status fields such as `cardNumber`, `appliedFeeType`, `threeDSPreference` and `threeDSApplied`.
-- The DTO also exposes `getPriceInMainUnit()` and `getFormattedPriceAttribute()` to convert Comgate cents/haléře into the main currency unit.
-- Response is always `code=0&message=OK` for valid webhook calls.
+Comgate says a push notification can be forged. With `comgate.webhook.verify_status` (env `COMGATE_WEBHOOK_VERIFY_STATUS`, default `true`) the controller calls `findPayment()` after the secret check and chooses the typed event from that status, not from the notification. When the notification includes `merchant`, both the secret and the status call use that shop: the default account, or `comgate.merchants`. An unknown merchant is rejected. `ComgatePaymentPaid`, `ComgatePaymentFailed` and `ComgatePaymentAuthorized` then carry `verifiedStatus`. `ComgateWebhookReceived` carries it too.
+
+- Secret is validated from the `X-Comgate-Secret` header or the `secret` payload field, then removed. Event payloads and `ComgateWebhookNotification::toArray()` do not contain `secret`. The `$secret` property stays for compatibility and is always `null`.
+- `comgate.webhook.verify_ip` (env `COMGATE_WEBHOOK_VERIFY_IP`, default `false`) checks `$request->ip()` against the list at `comgate.webhook.ips_url` (`https://payments.comgate.cz/ips-v4`). A successful list is cached for 24 hours. An address outside the list returns HTTP 403. If the list cannot be downloaded, the check is skipped and a warning is logged, so a Comgate outage does not block payments.
+- Behind Cloudflare or another reverse proxy, set Laravel trusted proxies before enabling `verify_ip`. Without that, `$request->ip()` is the proxy address and real Comgate notifications are rejected.
+- A notification status that differs from the status API is logged as a warning without the secret. The verified status wins. `PENDING` and any other non-final status do not dispatch a typed event.
+- Verified `AUTHORIZED` dispatches `ComgatePaymentAuthorized`.
+- A status API failure (`ComgateRequestException`, including timeouts and HTTP 5xx) returns HTTP 503 with no payment details and no typed event. Comgate retries the notification.
+- `PaymentNotFoundException` is logged and acknowledged with HTTP 200. Retrying would not find the payment, and no typed event is dispatched.
+- Set `COMGATE_WEBHOOK_VERIFY_STATUS=false` only when you intentionally want the previous behavior: typed events follow the notification and `verifiedStatus` stays `null`.
+- Before fulfilling an order, compare `verifiedStatus->matchesAmount()` with the amount and currency stored on the order.
+- These events include the HTTP `Request`. Do not queue their listeners with `ShouldQueue`. Use a synchronous listener that stores `transId` and dispatches your own job.
+- Response for an accepted webhook is `code=0&message=OK` with HTTP 200.
+
+Application tests must fake the status call while verification is on: `Comgate::fake()` or `Http::fake()`.
 
 ```php
-use Sloukapetr\ComgateLaravelPackage\Events\ComgateWebhookReceived;
+use Sloukapetr\ComgateLaravelPackage\Events\ComgatePaymentPaid;
 
-class HandleComgateWebhook
+class RecordComgatePayment
 {
-    public function handle(ComgateWebhookReceived $event): void
+    public function handle(ComgatePaymentPaid $event): void
     {
-        // Keep this listener idempotent: Comgate can retry webhook delivery.
-        if ($this->alreadyProcessed($event->notification->transId)) {
+        $status = $event->verifiedStatus;
+
+        if ($status === null || ! $status->matchesAmount($this->orderAmount($status->transId), $this->orderCurrency($status->transId))) {
             return;
         }
 
-        if ($event->notification->isPaid()) {
-            $transactionId = $event->notification->transId;
-            $referenceId = $event->notification->refId;
-
-            // mark order or subscription renewal as paid
-        }
-    }
-
-    private function alreadyProcessed(?string $transactionId): bool
-    {
-        return false;
+        ProcessComgatePayment::dispatch($status->transId);
     }
 }
 ```
@@ -497,7 +582,45 @@ composer test
 ```
 
 The package includes HTTP-layer tests using Laravel `Http::fake()` and Testbench for webhook route coverage.
-The facade fake helper can be used in application tests when you want to avoid HTTP calls and assert recorded Comgate operations.
+
+Application tests can avoid HTTP with `Comgate::fake()`. Record a payment, prepare the status the webhook will verify, post the notification, then assert both the Comgate calls and your own order state:
+
+```php
+use Comgate;
+use Sloukapetr\ComgateLaravelPackage\Enums\PaymentStatus;
+
+$fake = Comgate::fake([
+    'createPayment' => [
+        'code' => 0,
+        'message' => 'OK',
+        'transId' => 'AB12-CD34-EF56',
+        'redirect' => 'https://payments.comgate.cz/client/instructions/index?id=AB12-CD34-EF56',
+    ],
+]);
+
+$payment = Comgate::createPayment([
+    'price' => 19900,
+    'curr' => 'CZK',
+    'label' => 'ORDER-1001',
+    'refId' => '1001',
+    'method' => 'ALL',
+]);
+
+$fake->willReturnStatus($payment['transId'], PaymentStatus::Paid, 19900);
+
+$this->post(route('comgate.webhook'), $fake->webhookPayload($payment['transId'], PaymentStatus::Paid, [
+    'price' => 19900,
+    'curr' => 'CZK',
+    'refId' => '1001',
+]));
+
+$fake->assertPaymentCreated(fn (array $payload): bool => $payload['refId'] === '1001');
+$fake->assertStatusChecked($payment['transId']);
+
+$this->assertTrue($order->fresh()->isPaid());
+```
+
+`webhookPayload()` includes the configured merchant secret. Other assertions on the same fake are `assertRecurringCharged()`, `assertRefunded()`, `assertPaymentCancelled()` and `assertNothingSent()`. A callback receives the call payload and returns `bool`.
 
 ## Release
 

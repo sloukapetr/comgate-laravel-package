@@ -6,6 +6,7 @@ namespace Sloukapetr\ComgateLaravelPackage\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Http\Request;
+use Sloukapetr\ComgateLaravelPackage\Data\ComgatePaymentStatus;
 use Sloukapetr\ComgateLaravelPackage\Data\ComgateWebhookNotification;
 
 class ComgateWebhookReceived
@@ -18,7 +19,8 @@ class ComgateWebhookReceived
     public function __construct(
         public readonly array $payload,
         public readonly ComgateWebhookNotification $notification,
-        public readonly Request $request
+        public readonly Request $request,
+        public readonly ?ComgatePaymentStatus $verifiedStatus = null,
     ) {
     }
 }

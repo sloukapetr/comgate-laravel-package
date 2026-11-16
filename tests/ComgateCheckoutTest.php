@@ -193,6 +193,66 @@ class ComgateCheckoutTest extends TestCase
         });
     }
 
+    public function test_for_merchant_uses_the_configured_shop_basic_auth(): void
+    {
+        config([
+            'comgate.merchants' => [
+                'merchant-456' => [
+                    'secret' => 'secret-other',
+                    'test' => false,
+                ],
+            ],
+        ]);
+
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/payment.json' => Http::response([
+                'code' => 0,
+                'message' => 'OK',
+                'transId' => 'TX-UNIT',
+                'redirect' => 'https://payments.comgate.cz/tx',
+            ], 200),
+        ]);
+
+        $service = $this->app->make(ComgateService::class);
+
+        $service->forMerchant('merchant-456')->createPayment([
+            'price' => 1000,
+            'curr' => 'CZK',
+            'label' => 'FA-1',
+            'refId' => '1001',
+            'method' => 'ALL',
+            'email' => 'platce@email.com',
+        ]);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request->hasHeader('Authorization', 'Basic '.base64_encode('merchant-456:secret-other'))
+                && $request['test'] === false
+                && $request['refId'] === '1001';
+        });
+
+        $service->forMerchant('merchant-123')->createPayment([
+            'price' => 1000,
+            'curr' => 'CZK',
+            'label' => 'FA-2',
+            'refId' => '1002',
+            'method' => 'ALL',
+            'email' => 'platce@email.com',
+        ]);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request->hasHeader('Authorization', 'Basic '.base64_encode('merchant-123:secret-xyz'))
+                && $request['test'] === true
+                && $request['refId'] === '1002';
+        });
+    }
+
+    public function test_for_merchant_rejects_an_unknown_shop(): void
+    {
+        $this->expectException(ComgateRequestException::class);
+
+        $this->app->make(ComgateService::class)->forMerchant('missing-shop');
+    }
+
     public function test_refund_over_the_paid_amount_is_a_dedicated_exception(): void
     {
         Http::fake([

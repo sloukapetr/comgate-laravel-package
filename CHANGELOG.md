@@ -6,6 +6,29 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-16
+
+### Added
+
+- Optional `comgate.force_ipv4` (`COMGATE_FORCE_IPV4`, default `false`) so Merchant API and Status API calls resolve to IPv4 and pass a Comgate IP whitelist on dual-stack servers.
+- `ComgateConnectionException` for timeouts and connection failures, and `ComgateRequestException::isRetryable()` for those failures and HTTP 5xx responses.
+- Webhook status verification (`comgate.webhook.verify_status`, default `true`) and `ComgatePaymentAuthorized` for a verified `AUTHORIZED` payment. Paid, failed, authorized and received events include `verifiedStatus`.
+- `comgate.merchants` and `forMerchant()` for additional Comgate shops. A webhook `merchant` selects that shop's secret and status client.
+- Optional webhook IP check (`comgate.webhook.verify_ip`, default `false`) against the Comgate IPv4 list, cached for 24 hours. A failed download skips the check.
+- `Comgate::fake()` assertions (`assertPaymentCreated()`, `assertRecurringCharged()`, `assertRefunded()`, `assertPaymentCancelled()`, `assertStatusChecked()`, `assertNothingSent()`), plus `willReturnStatus()` and `webhookPayload()` for webhook tests without `Http::fake()`.
+
+### Changed
+
+- `handleWebhook()` removes `secret` before returning the payload. `ComgateWebhookNotification::$secret` is deprecated and always `null`.
+
+### Upgrade Notes
+
+- `comgate.webhook.verify_status` is on by default. The webhook calls the payment status API before dispatching a typed event. Application tests need `Comgate::fake()` or `Http::fake()` for that call. Set `COMGATE_WEBHOOK_VERIFY_STATUS=false` to keep choosing the event from the notification alone.
+- `comgate.force_ipv4` (`COMGATE_FORCE_IPV4`) defaults to `false`. Set it to `true` only when the server is dual-stack and the Comgate whitelist contains the IPv4 address.
+- `comgate.merchants` defaults to `[]`. Extra shops and their webhook secrets belong there. `forMerchant()` selects one.
+- `comgate.webhook.verify_ip` (`COMGATE_WEBHOOK_VERIFY_IP`) defaults to `false`. Turn it on only after Laravel trusted proxies are configured.
+- `ComgateWebhookNotification::$secret` is deprecated and always `null`. Do not read `secret` from webhook events or `toArray()`.
+
 ## [1.3.0] - 2026-11-11
 
 ### Added

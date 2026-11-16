@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -13,6 +14,7 @@ use Sloukapetr\ComgateLaravelPackage\Data\CreatedPayment;
 use Sloukapetr\ComgateLaravelPackage\Data\CreatePayment;
 use Sloukapetr\ComgateLaravelPackage\Data\RecurringCharge;
 use Sloukapetr\ComgateLaravelPackage\Data\RefundRequest;
+use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateConnectionException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateRequestException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\InvalidWebhookSignatureException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\MissingParameterException;
@@ -30,6 +32,8 @@ class ComgateService
 
     protected ?string $credentialSecret = null;
 
+    protected ?bool $credentialTest = null;
+
     /**
      * Merchant client for another Comgate account. The container singleton keeps the configured account.
      */
@@ -45,6 +49,45 @@ class ComgateService
         $client = clone $this;
         $client->credentialMerchantId = $merchantId;
         $client->credentialSecret = $secret;
+        $client->credentialTest = null;
+
+        return $client;
+    }
+
+    /**
+     * Client for the default merchant or for one entry in `comgate.merchants`.
+     */
+    public function forMerchant(string $merchantId): static
+    {
+        $merchantId = trim($merchantId);
+
+        if ($merchantId === '') {
+            throw new ComgateRequestException('Comgate merchant id is required.', 0, '');
+        }
+
+        $defaultId = trim((string) config('comgate.merchant_id', ''));
+
+        if ($defaultId !== '' && $merchantId === $defaultId) {
+            $client = clone $this;
+            $client->credentialMerchantId = null;
+            $client->credentialSecret = null;
+            $client->credentialTest = null;
+
+            return $client;
+        }
+
+        $configured = $this->configuredMerchant($merchantId);
+
+        if ($configured === null) {
+            throw new ComgateRequestException(
+                sprintf('Comgate merchant [%s] is not configured.', $merchantId),
+                0,
+                ''
+            );
+        }
+
+        $client = $this->withCredentials($merchantId, $configured['secret']);
+        $client->credentialTest = $configured['test'];
 
         return $client;
     }
@@ -424,6 +467,8 @@ class ComgateService
             throw new InvalidWebhookSignatureException('Invalid Comgate webhook secret.');
         }
 
+        unset($payload['secret']);
+
         return $payload;
     }
 
@@ -432,10 +477,25 @@ class ComgateService
      */
     public function verifyWebhookSignature(array $payload, ?string $providedSecret = null): bool
     {
-        $expected = $this->secret();
         $actual = $providedSecret ?? (isset($payload['secret']) ? (string) $payload['secret'] : '');
 
-        if ($expected === '' || $actual === '') {
+        if ($actual === '') {
+            return false;
+        }
+
+        $merchant = isset($payload['merchant']) ? trim((string) $payload['merchant']) : '';
+
+        if ($merchant !== '') {
+            try {
+                $expected = $this->forMerchant($merchant)->secret();
+            } catch (ComgateRequestException) {
+                return false;
+            }
+        } else {
+            $expected = $this->secret();
+        }
+
+        if ($expected === '') {
             return false;
         }
 
@@ -462,20 +522,24 @@ class ComgateService
      */
     protected function request(string $operation, string $method, string $path, array $payload = [], array $query = []): array
     {
-        $request = $this->http()
-            ->acceptJson();
+        try {
+            $request = $this->http()
+                ->acceptJson();
 
-        $response = match (strtoupper($method)) {
-            'GET' => $request->get($this->url($path), $query),
-            'POST' => $request->post($this->url($path), $payload),
-            'PUT' => $request->put($this->url($path), $this->withoutTransId($payload)),
-            'DELETE' => $request->delete($this->url($path)),
-            default => throw new ComgateRequestException(
-                sprintf('Unsupported Comgate HTTP method [%s].', $method),
-                0,
-                ''
-            ),
-        };
+            $response = match (strtoupper($method)) {
+                'GET' => $request->get($this->url($path), $query),
+                'POST' => $request->post($this->url($path), $payload),
+                'PUT' => $request->put($this->url($path), $this->withoutTransId($payload)),
+                'DELETE' => $request->delete($this->url($path)),
+                default => throw new ComgateRequestException(
+                    sprintf('Unsupported Comgate HTTP method [%s].', $method),
+                    0,
+                    ''
+                ),
+            };
+        } catch (ConnectionException $exception) {
+            throw $this->connectionException($exception);
+        }
 
         return $this->parseResponse($operation, $response);
     }
@@ -485,23 +549,52 @@ class ComgateService
      */
     protected function statusRequest(string $operation, string $path, array $query = []): array
     {
-        $response = $this->statusHttp()
-            ->acceptJson()
-            ->get($this->statusUrl($path), $query);
+        try {
+            $response = $this->statusHttp()
+                ->acceptJson()
+                ->get($this->statusUrl($path), $query);
+        } catch (ConnectionException $exception) {
+            throw $this->connectionException($exception);
+        }
 
         return $this->parseResponse($operation, $response);
     }
 
     protected function http(): PendingRequest
     {
-        return Http::withBasicAuth($this->merchantId(), $this->secret())
-            ->asJson()
-            ->timeout((int) config('comgate.timeout', 30));
+        return $this->withForcedIpv4(
+            Http::withBasicAuth($this->merchantId(), $this->secret())
+                ->asJson()
+                ->timeout((int) config('comgate.timeout', 30))
+        );
     }
 
     protected function statusHttp(): PendingRequest
     {
-        return Http::timeout((int) config('comgate.status.timeout', (int) config('comgate.timeout', 30)));
+        return $this->withForcedIpv4(
+            Http::timeout((int) config('comgate.status.timeout', (int) config('comgate.timeout', 30)))
+        );
+    }
+
+    protected function withForcedIpv4(PendingRequest $request): PendingRequest
+    {
+        if (! (bool) config('comgate.force_ipv4', false)) {
+            return $request;
+        }
+
+        return $request->withOptions([
+            'curl' => [
+                CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+            ],
+        ]);
+    }
+
+    protected function connectionException(ConnectionException $exception): ComgateConnectionException
+    {
+        return new ComgateConnectionException(
+            sprintf('Comgate connection failed: %s', $exception->getMessage()),
+            $exception
+        );
     }
 
     protected function merchantId(): string
@@ -512,6 +605,31 @@ class ComgateService
     protected function secret(): string
     {
         return $this->credentialSecret ?? (string) config('comgate.secret', '');
+    }
+
+    /**
+     * @return array{secret: string, test: ?bool}|null
+     */
+    private function configuredMerchant(string $merchantId): ?array
+    {
+        $merchants = config('comgate.merchants', []);
+
+        if (! is_array($merchants) || ! isset($merchants[$merchantId]) || ! is_array($merchants[$merchantId])) {
+            return null;
+        }
+
+        $secret = $merchants[$merchantId]['secret'] ?? null;
+
+        if (! is_string($secret) || trim($secret) === '') {
+            return null;
+        }
+
+        $test = $merchants[$merchantId]['test'] ?? null;
+
+        return [
+            'secret' => trim($secret),
+            'test' => is_bool($test) ? $test : null,
+        ];
     }
 
     protected function url(string $endpoint): string
@@ -594,7 +712,7 @@ class ComgateService
     protected function withDefaultTestFlag(array $payload): array
     {
         if (! array_key_exists('test', $payload)) {
-            $payload['test'] = (bool) config('comgate.test', true);
+            $payload['test'] = $this->credentialTest ?? (bool) config('comgate.test', true);
         }
 
         return $payload;

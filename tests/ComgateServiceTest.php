@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage\Tests;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Sloukapetr\ComgateLaravelPackage\Facades\Comgate;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
+use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateConnectionException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\ComgateRequestException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\MissingParameterException;
 use Sloukapetr\ComgateLaravelPackage\Exceptions\PaymentNotFoundException;
@@ -384,5 +387,120 @@ class ComgateServiceTest extends TestCase
         }
 
         Http::assertSentCount(3);
+    }
+
+    public function test_force_ipv4_sets_curl_ip_resolve_on_merchant_and_status_clients(): void
+    {
+        config(['comgate.force_ipv4' => true]);
+
+        $clients = new class extends ComgateService
+        {
+            public function merchantClient(): PendingRequest
+            {
+                return $this->http();
+            }
+
+            public function statusClient(): PendingRequest
+            {
+                return $this->statusHttp();
+            }
+        };
+
+        foreach ([$clients->merchantClient(), $clients->statusClient()] as $client) {
+            $this->assertSame(CURL_IPRESOLVE_V4, $client->getOptions()['curl'][CURLOPT_IPRESOLVE] ?? null);
+        }
+    }
+
+    public function test_force_ipv4_defaults_to_leaving_ip_resolution_unchanged(): void
+    {
+        $clients = new class extends ComgateService
+        {
+            public function merchantClient(): PendingRequest
+            {
+                return $this->http();
+            }
+
+            public function statusClient(): PendingRequest
+            {
+                return $this->statusHttp();
+            }
+        };
+
+        $this->assertFalse((bool) config('comgate.force_ipv4', false));
+        $this->assertArrayNotHasKey('curl', $clients->merchantClient()->getOptions());
+        $this->assertArrayNotHasKey('curl', $clients->statusClient()->getOptions());
+    }
+
+    public function test_connection_failure_is_a_retryable_comgate_exception(): void
+    {
+        $failure = new ConnectionException('cURL error 28: Operation timed out');
+
+        Http::fake(function () use ($failure): void {
+            throw $failure;
+        });
+
+        try {
+            $this->app->make(ComgateService::class)->methods();
+
+            $this->fail('Expected ComgateConnectionException was not thrown.');
+        } catch (ComgateConnectionException $exception) {
+            $this->assertSame(0, $exception->statusCode());
+            $this->assertSame($failure, $exception->getPrevious());
+            $this->assertTrue($exception->isRetryable());
+        }
+    }
+
+    public function test_status_api_connection_failure_is_a_retryable_comgate_exception(): void
+    {
+        $failure = new ConnectionException('cURL error 7: Failed to connect');
+
+        Http::fake(function () use ($failure): void {
+            throw $failure;
+        });
+
+        try {
+            $this->app->make(ComgateService::class)->gatewayHealth();
+
+            $this->fail('Expected ComgateConnectionException was not thrown.');
+        } catch (ComgateConnectionException $exception) {
+            $this->assertSame($failure, $exception->getPrevious());
+            $this->assertTrue($exception->isRetryable());
+        }
+    }
+
+    public function test_http_server_error_is_retryable(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/method.json*' => Http::response('unavailable', 503),
+        ]);
+
+        try {
+            $this->app->make(ComgateService::class)->methods();
+
+            $this->fail('Expected ComgateRequestException was not thrown.');
+        } catch (ComgateRequestException $exception) {
+            $this->assertSame(503, $exception->statusCode());
+            $this->assertTrue($exception->isRetryable());
+        }
+    }
+
+    public function test_api_error_with_http_200_is_not_retryable(): void
+    {
+        Http::fake([
+            'https://payments.comgate.cz/v2.0/method.json*' => Http::response([
+                'code' => 1309,
+                'message' => 'Payment method is not available',
+            ], 200),
+        ]);
+
+        try {
+            $this->app->make(ComgateService::class)->methods();
+
+            $this->fail('Expected ComgateRequestException was not thrown.');
+        } catch (ComgateRequestException $exception) {
+            $this->assertSame(1309, $exception->apiCode());
+            $this->assertSame(200, $exception->statusCode());
+            $this->assertFalse($exception->isRetryable());
+        }
     }
 }

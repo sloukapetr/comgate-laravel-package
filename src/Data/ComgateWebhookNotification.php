@@ -40,6 +40,9 @@ class ComgateWebhookNotification
         public readonly ?string $paymentErrorReason,
         public readonly ?string $threeDSPreference,
         public readonly ?bool $threeDSApplied,
+        /**
+         * @deprecated Always null. The webhook secret stays on the server and is not part of the notification.
+         */
         public readonly ?string $secret,
     ) {
     }
@@ -49,6 +52,8 @@ class ComgateWebhookNotification
      */
     public static function fromArray(array $payload): self
     {
+        unset($payload['secret']);
+
         return new self(
             payload: $payload,
             code: self::toInt($payload['code'] ?? null),
@@ -78,7 +83,7 @@ class ComgateWebhookNotification
             paymentErrorReason: self::toString($payload['paymentErrorReason'] ?? null),
             threeDSPreference: self::toString($payload['threeDSPreference'] ?? null),
             threeDSApplied: self::toBool($payload['threeDSApplied'] ?? null),
-            secret: self::toString($payload['secret'] ?? null),
+            secret: null,
         );
     }
 

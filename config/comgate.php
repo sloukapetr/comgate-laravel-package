@@ -8,6 +8,8 @@ return [
     'test' => (bool) env('COMGATE_TEST', true),
     'base_url' => env('COMGATE_BASE_URL', 'https://payments.comgate.cz/v2.0'),
     'timeout' => (int) env('COMGATE_TIMEOUT', 30),
+    'force_ipv4' => (bool) env('COMGATE_FORCE_IPV4', false),
+    'merchants' => [],
 
     'status' => [
         'base_url' => env('COMGATE_STATUS_BASE_URL', 'https://status.comgate.cz'),
@@ -19,6 +21,9 @@ return [
         'path' => env('COMGATE_WEBHOOK_PATH', '/comgate/webhook'),
         'middleware' => ['api'],
         'route_name' => env('COMGATE_WEBHOOK_ROUTE_NAME', 'comgate.webhook'),
+        'verify_status' => (bool) env('COMGATE_WEBHOOK_VERIFY_STATUS', true),
+        'verify_ip' => (bool) env('COMGATE_WEBHOOK_VERIFY_IP', false),
+        'ips_url' => env('COMGATE_WEBHOOK_IPS_URL', 'https://payments.comgate.cz/ips-v4'),
     ],
 
     'defaults' => [

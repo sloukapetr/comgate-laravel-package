@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Sloukapetr\ComgateLaravelPackage\Fakes;
 
+use ArrayObject;
+use PHPUnit\Framework\Assert;
 use Sloukapetr\ComgateLaravelPackage\ComgateService;
+use Sloukapetr\ComgateLaravelPackage\Enums\PaymentStatus;
+
+use function config;
 
 class ComgateFake extends ComgateService
 {
@@ -14,9 +19,9 @@ class ComgateFake extends ComgateService
     protected array $responses;
 
     /**
-     * @var array<int, array<string, mixed>>
+     * @var ArrayObject<int, array<string, mixed>>
      */
-    protected array $calls = [];
+    protected ArrayObject $calls;
 
     /**
      * @param  array<string, array<string, mixed>>  $responses
@@ -24,6 +29,7 @@ class ComgateFake extends ComgateService
     public function __construct(array $responses = [])
     {
         $this->responses = $responses;
+        $this->calls = new ArrayObject();
     }
 
     /**
@@ -41,11 +47,127 @@ class ComgateFake extends ComgateService
      */
     public function calls(?string $operation = null): array
     {
+        $calls = $this->calls->getArrayCopy();
+
         if ($operation === null) {
-            return $this->calls;
+            return $calls;
         }
 
-        return array_values(array_filter($this->calls, static fn (array $call): bool => $call['operation'] === $operation));
+        return array_values(array_filter(
+            $calls,
+            static fn (array $call): bool => $call['operation'] === $operation
+        ));
+    }
+
+    public function forMerchant(string $merchantId): static
+    {
+        $defaultId = trim((string) config('comgate.merchant_id', ''));
+
+        if ($defaultId !== ''
+            && trim($merchantId) === $defaultId
+            && $this->credentialMerchantId === null
+            && $this->credentialSecret === null
+        ) {
+            return $this;
+        }
+
+        return parent::forMerchant($merchantId);
+    }
+
+    /**
+     * @param  (callable(array<string, mixed>): bool)|null  $callback
+     */
+    public function assertPaymentCreated(?callable $callback = null): void
+    {
+        $this->assertMatchingCall('createPayment', $callback, 'A Comgate payment was not created.');
+    }
+
+    /**
+     * @param  (callable(array<string, mixed>): bool)|null  $callback
+     */
+    public function assertRecurringCharged(?callable $callback = null): void
+    {
+        $this->assertMatchingCall('recurringPayment', $callback, 'A Comgate recurring payment was not charged.');
+    }
+
+    public function assertRefunded(?string $transId = null, ?int $amount = null): void
+    {
+        $this->assertMatchingCall('refund', function (array $payload) use ($transId, $amount): bool {
+            if ($transId !== null && ($payload['transId'] ?? null) !== $transId) {
+                return false;
+            }
+
+            if ($amount !== null && ($payload['amount'] ?? null) !== $amount) {
+                return false;
+            }
+
+            return true;
+        }, 'A Comgate payment was not refunded.');
+    }
+
+    public function assertPaymentCancelled(?string $transId = null): void
+    {
+        $this->assertMatchingCall('cancelPayment', function (array $payload) use ($transId): bool {
+            return $transId === null || ($payload['transId'] ?? null) === $transId;
+        }, 'A Comgate payment was not cancelled.');
+    }
+
+    public function assertStatusChecked(?string $transId = null): void
+    {
+        $this->assertMatchingCall('status', function (array $payload) use ($transId): bool {
+            return $transId === null || ($payload['transId'] ?? null) === $transId;
+        }, 'A Comgate payment status was not checked.');
+    }
+
+    public function assertNothingSent(): void
+    {
+        Assert::assertCount(0, $this->calls, 'Comgate requests were sent.');
+    }
+
+    public function willReturnStatus(string $transId, PaymentStatus $status, int $price, string $curr = 'CZK'): self
+    {
+        return $this->setResponse('status', [
+            'code' => 0,
+            'message' => 'OK',
+            'transId' => $transId,
+            'status' => $status->value,
+            'price' => $price,
+            'curr' => $curr,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public function webhookPayload(string $transId, PaymentStatus $status, array $overrides = []): array
+    {
+        return array_replace([
+            'merchant' => (string) config('comgate.merchant_id', ''),
+            'transId' => $transId,
+            'status' => $status->value,
+            'price' => 0,
+            'curr' => 'CZK',
+            'secret' => (string) config('comgate.secret', ''),
+        ], $overrides);
+    }
+
+    /**
+     * @param  (callable(array<string, mixed>): bool)|null  $callback
+     */
+    private function assertMatchingCall(string $operation, ?callable $callback, string $message): void
+    {
+        foreach ($this->calls($operation) as $call) {
+            $payload = is_array($call['payload'] ?? null) ? $call['payload'] : [];
+
+            if ($callback === null || $callback($payload) === true) {
+                Assert::assertTrue(true);
+
+                return;
+            }
+        }
+
+        Assert::fail($message);
     }
 
     /**

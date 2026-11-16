@@ -7,3 +7,7 @@
 /.editorconfig export-ignore
 /.github export-ignore
 /.phpunit.result.cache export-ignore
+/.ai export-ignore
+/.cursor export-ignore
+/AGENTS.md export-ignore
+/RELEASE_* export-ignore
