@@ -44,3 +44,8 @@ This repository is a Laravel package for Comgate Merchant REST API v2.0 integrat
 - Do not rely on emails to confirm payment state.
 - Do not add new public methods without a clear API mapping and tests.
 - Do not rewrite stable behavior just to match naming preferences.
+
+## Detailed Rules and Tasks
+- Detailed rules (Czech) are in `.ai/rules/package.md`; the index is `.ai/rules/index.md`. They take precedence over this summary.
+- Work items are in `.ai/tasks/NNN-*.md`; status overview in `.ai/tasks/README.md`. Update the status when a task is done.
+- Do not commit or tag; the maintainer does that.

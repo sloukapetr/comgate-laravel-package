@@ -1,0 +1,8 @@
+---
+description: Pravidla pro vývoj balíčku sloukapetr/comgate-laravel-package (Comgate REST API v2.0)
+globs: src/**,config/**,tests/**,README.md,CHANGELOG.md,composer.json
+alwaysApply: true
+---
+
+Pravidla: @.ai/rules/package.md
+Přehled úkolů: @.ai/tasks/README.md
